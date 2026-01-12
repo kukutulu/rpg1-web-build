@@ -1,159 +1,186 @@
 <!DOCTYPE html>
-<html lang="en-us">
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>Unity Web Player | RPG1</title>
-    <link rel="shortcut icon" href="TemplateData/favicon.ico" />
-    <link rel="stylesheet" href="TemplateData/style.css" />
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+    <title>Unity WebGL with PeerJS</title>
     <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
-      #unity-container {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-      }
-      #unity-canvas {
-        width: 100%;
-        height: 100%;
-        background: #231f20;
-      }
-      #unity-footer {
-        display: none;
-      }
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #1b1b1b;
+        }
+
+        #unity-container {
+            width: 100%;
+            height: 100%;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        #unity-canvas {
+            width: 100%;
+            height: 100%;
+            background: #231F20;
+        }
+
+        #unity-loading-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+        }
+
+        #unity-progress-bar-empty {
+            width: 300px;
+            height: 20px;
+            background: #444;
+            border-radius: 4px;
+        }
+
+        #unity-progress-bar-full {
+            width: 0%;
+            height: 100%;
+            background: #37c;
+            border-radius: 4px;
+        }
     </style>
-  </head>
-  <body>
-    <div id="unity-container" class="unity-desktop">
-      <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
-      <div id="unity-loading-bar">
-        <div id="unity-logo"></div>
-        <div id="unity-progress-bar-empty">
-          <div id="unity-progress-bar-full"></div>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+
+<body>
+    <div id="unity-container">
+        <canvas id="unity-canvas"></canvas>
+        <div id="unity-loading-bar">
+            <div id="unity-progress-bar-empty">
+                <div id="unity-progress-bar-full"></div>
+            </div>
         </div>
-      </div>
-      <div id="unity-warning"></div>
-      <div id="unity-footer">
-        <div id="unity-logo-title-footer"></div>
-        <div id="unity-fullscreen-button"></div>
-        <div id="unity-build-title">RPG1</div>
-      </div>
     </div>
+
     <script>
-      var canvas = document.querySelector("#unity-canvas");
+        // --- Unity loader bootstrap (matches default Unity WebGL template) ---
+        const buildUrl = "Build";
+        const loaderUrl = buildUrl + "/RPG1-Webbuild.loader.js";
+        const config = {
+            dataUrl: buildUrl + "/RPG1-Webbuild.data.gz",
+            frameworkUrl: buildUrl + "/RPG1-Webbuild.framework.js.gz",
+            codeUrl: buildUrl + "/RPG1-Webbuild.wasm.gz",
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "DefaultCompany",
+            productName: "RPG1",
+            productVersion: "0.1",
+        };
 
-      // Shows a temporary message banner/ribbon for a few seconds, or
-      // a permanent error message on top of the canvas if type=='error'.
-      // If type=='warning', a yellow highlight color is used.
-      // Modify or remove this function to customize the visually presented
-      // way that non-critical warnings and error messages are presented to the
-      // user.
-      function unityShowBanner(msg, type) {
-        var warningBanner = document.querySelector("#unity-warning");
-        function updateBannerVisibility() {
-          warningBanner.style.display = warningBanner.children.length
-            ? "block"
-            : "none";
+        const canvas = document.querySelector("#unity-canvas");
+        const loadingBar = document.querySelector("#unity-loading-bar");
+        const progressBarFull = document.querySelector("#unity-progress-bar-full");
+
+        loadingBar.style.display = "block";
+
+        const script = document.createElement("script");
+        script.src = loaderUrl;
+        script.onload = () => {
+            createUnityInstance(canvas, config, (progress) => {
+                progressBarFull.style.width = (100 * progress) + "%";
+            }).then((instance) => {
+                loadingBar.style.display = "none";
+
+                // Capture the Unity canvas as a MediaStream for viewers (video only)
+                let canvasStream = null;
+                if (canvas.captureStream) {
+                    canvasStream = canvas.captureStream(30); // 30 FPS
+                    console.log('[PeerJS] Canvas captureStream started');
+                } else {
+                    console.warn('canvas.captureStream is not supported in this browser.');
+                }
+
+                setupPeer(instance, canvasStream);
+            }).catch((message) => {
+                alert(message);
+            });
+        };
+        document.body.appendChild(script);
+
+        // --- PeerJS wiring ---
+        let peer = null;
+        let conn = null;
+
+        function setupPeer(unityInstance, canvasStream) {
+            // Host (Unity game) uses a fixed ID so viewers can connect to "game-host"
+            // and connects to the local PeerJS server on localhost:9000/myapp.
+            peer = new Peer('game-host', {
+                host: 'localhost',
+                port: 9000,
+                path: '/myapp',
+                secure: false
+            });
+
+            peer.on('open', (id) => {
+                console.log('[PeerJS] Ready with ID:', id);
+                // Also log into Unity console
+                try {
+                    unityInstance.SendMessage('PeerManager', 'OnPeerReady', id);
+                } catch (e) {
+                    console.warn('Failed to notify Unity about PeerJS ready state:', e);
+                }
+            });
+
+            peer.on('connection', (c) => {
+                conn = c;
+                console.log('[PeerJS] Data connection received from', c.peer);
+
+                c.on('data', (data) => {
+                    // JS → Unity
+                    unityInstance.SendMessage('PeerManager', 'OnPeerMessage', JSON.stringify(data));
+                });
+
+                c.on('close', () => {
+                    console.log('[PeerJS] Data connection closed', c.peer);
+                    if (conn === c) {
+                        conn = null;
+                    }
+                });
+
+                // As soon as we have a data connection to a viewer,
+                // start a media call to that viewer with our canvas stream.
+                if (canvasStream) {
+                    console.log('[PeerJS] Starting media call to viewer', c.peer);
+                    const mediaCall = peer.call(c.peer, canvasStream);
+                    mediaCall.on('close', () => {
+                        console.log('[PeerJS] Media call closed with', c.peer);
+                    });
+                    mediaCall.on('error', (err) => {
+                        console.error('[PeerJS] Media call error with', c.peer, err);
+                    });
+                } else {
+                    console.warn('[PeerJS] No canvas stream available to start media call.');
+                }
+            });
+
+            peer.on('error', (err) => {
+                console.error('[PeerJS] Error:', err);
+            });
         }
-        var div = document.createElement("div");
-        div.innerHTML = msg;
-        warningBanner.appendChild(div);
-        if (type == "error") div.style = "background: red; padding: 10px;";
-        else {
-          if (type == "warning")
-            div.style = "background: yellow; padding: 10px;";
-          setTimeout(function () {
-            warningBanner.removeChild(div);
-            updateBannerVisibility();
-          }, 5000);
+
+        // Unity → JS entry point (called via [DllImport("__Internal")] in C#)
+        // Must be global so Unity can find it.
+        function SendToPeerFromUnity(message) {
+            if (conn && conn.open) {
+                conn.send(message);
+            } else {
+                console.warn('[PeerJS] No open connection; message not sent:', message);
+            }
         }
-        updateBannerVisibility();
-      }
-
-      var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/RPG1-Webbuild.loader.js";
-      var config = {
-        arguments: [],
-        dataUrl: buildUrl + "/RPG1-Webbuild.data.gz",
-        frameworkUrl: buildUrl + "/RPG1-Webbuild.framework.js.gz",
-        codeUrl: buildUrl + "/RPG1-Webbuild.wasm.gz",
-        streamingAssetsUrl: "StreamingAssets",
-        companyName: "DefaultCompany",
-        productName: "RPG1",
-        productVersion: "0.1",
-        showBanner: unityShowBanner,
-        // errorHandler: function(err, url, line) {
-        //    alert("error " + err + " occurred at line " + line);
-        //    // Return 'true' if you handled this error and don't want Unity
-        //    // to process it further, 'false' otherwise.
-        //    return true;
-        // },
-      };
-
-      // By default, Unity keeps WebGL canvas render target size matched with
-      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
-      // Set this to false if you want to decouple this synchronization from
-      // happening inside the engine, and you would instead like to size up
-      // the canvas DOM size and WebGL render target sizes yourself.
-      // config.matchWebGLToCanvasSize = false;
-
-      // If you would like all file writes inside Unity Application.persistentDataPath
-      // directory to automatically persist so that the contents are remembered when
-      // the user revisits the site the next time, uncomment the following line:
-      // config.autoSyncPersistentDataPath = true;
-      // This autosyncing is currently not the default behavior to avoid regressing
-      // existing user projects that might rely on the earlier manual
-      // JS_FileSystem_Sync() behavior, but in future Unity version, this will be
-      // expected to change.
-
-      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device style: fill the whole browser client area with the game canvas:
-
-        var meta = document.createElement("meta");
-        meta.name = "viewport";
-        meta.content =
-          "width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes";
-        document.getElementsByTagName("head")[0].appendChild(meta);
-        document.querySelector("#unity-container").className = "unity-mobile";
-        canvas.className = "unity-mobile";
-
-        // To lower canvas resolution on mobile devices to gain some
-        // performance, uncomment the following line:
-        // config.devicePixelRatio = 1;
-      } else {
-        // Desktop style: Render the game canvas in a window that can be maximized to fullscreen:
-        canvas.style.width = "100%";
-        canvas.style.height = "100%";
-      }
-
-      document.querySelector("#unity-loading-bar").style.display = "block";
-
-      var script = document.createElement("script");
-      script.src = loaderUrl;
-      script.onload = () => {
-        createUnityInstance(canvas, config, (progress) => {
-          document.querySelector("#unity-progress-bar-full").style.width =
-            100 * progress + "%";
-        })
-          .then((unityInstance) => {
-            document.querySelector("#unity-loading-bar").style.display = "none";
-            document.querySelector("#unity-fullscreen-button").onclick = () => {
-              unityInstance.SetFullscreen(1);
-            };
-          })
-          .catch((message) => {
-            alert(message);
-          });
-      };
-
-      document.body.appendChild(script);
+        window.SendToPeerFromUnity = SendToPeerFromUnity;
     </script>
-  </body>
+</body>
+
 </html>
