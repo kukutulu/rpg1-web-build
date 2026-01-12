@@ -8,7 +8,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy WebGL build
 COPY Build /usr/share/nginx/html/Build
-COPY TemplateData /usr/share/nginx/html/TemplateData
+# COPY TemplateData /usr/share/nginx/html/TemplateData
 COPY index.html /usr/share/nginx/html/index.html
 
 EXPOSE 80
