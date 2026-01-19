@@ -231,6 +231,37 @@
         let connections = new Map(); // Track multiple viewer connections
         let currentRoomId = null;
 
+        // Unity → JS entry point (called via [DllImport("__Internal")] in C#)
+        // Must be global and defined early so Unity can find it.
+        // Broadcasts message to all connected viewers
+        function SendToPeerFromUnity(message) {
+            if (!connections || connections.size === 0) {
+                console.warn('[PeerJS] No connected viewers; message not sent:', message);
+                return;
+            }
+
+            let sentCount = 0;
+            connections.forEach((conn, viewerId) => {
+                if (conn && conn.open) {
+                    try {
+                        conn.send(message);
+                        sentCount++;
+                    } catch (err) {
+                        console.error('[PeerJS] Error sending to viewer', viewerId, ':', err);
+                    }
+                }
+            });
+
+            if (sentCount === 0) {
+                console.warn('[PeerJS] No open connections; message not sent:', message);
+            } else {
+                console.log('[PeerJS] Message sent to', sentCount, 'viewer(s):', message);
+            }
+        }
+
+        // Expose to window immediately so Unity can call it
+        window.SendToPeerFromUnity = SendToPeerFromUnity;
+
         function setupPeer(unityInstance, canvasStream) {
             // Get or generate room ID
             currentRoomId = getRoomId();
@@ -310,35 +341,6 @@
                 console.error('[PeerJS] Error:', err);
             });
         }
-
-        // Unity → JS entry point (called via [DllImport("__Internal")] in C#)
-        // Must be global so Unity can find it.
-        // Broadcasts message to all connected viewers
-        function SendToPeerFromUnity(message) {
-            if (connections.size === 0) {
-                console.warn('[PeerJS] No connected viewers; message not sent:', message);
-                return;
-            }
-
-            let sentCount = 0;
-            connections.forEach((conn, viewerId) => {
-                if (conn && conn.open) {
-                    try {
-                        conn.send(message);
-                        sentCount++;
-                    } catch (err) {
-                        console.error('[PeerJS] Error sending to viewer', viewerId, ':', err);
-                    }
-                }
-            });
-
-            if (sentCount === 0) {
-                console.warn('[PeerJS] No open connections; message not sent:', message);
-            } else {
-                console.log('[PeerJS] Message sent to', sentCount, 'viewer(s)');
-            }
-        }
-        window.SendToPeerFromUnity = SendToPeerFromUnity;
     </script>
 </body>
 
