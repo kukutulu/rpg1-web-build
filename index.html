@@ -88,10 +88,6 @@
                 <div id="unity-progress-bar-full"></div>
             </div>
         </div>
-        <div id="room-info">
-            <div>Room Code:</div>
-            <div id="room-code">-</div>
-        </div>
     </div>
 
     <script>
@@ -161,7 +157,7 @@
 
             if (roomParam && roomParam.trim() !== '') {
                 // Use room ID from URL parameter
-                const roomId = roomParam.trim().toUpperCase();
+                const roomId = roomParam.trim();
                 console.log('[Room] Using room ID from URL:', roomId);
                 return roomId;
             } else {
